@@ -2,7 +2,7 @@ bl_info = {
     "name": "MTG OCR Trainer Tools",
     "blender": (3, 0, 0),
     "category": "Object",
-    "author": "Mitch & ChatGPT",
+    "author": "Mitch",
     "version": (0, 2),
     "description": "Tools to randomize and render MTG-like text for OCR training"
 }

@@ -1,2 +1,2 @@
 # TesseractOCRTrianer
-A training module for Tesseract OCR
+This project uses Tesseract OCR, licensed under the Apache License 2.0.
