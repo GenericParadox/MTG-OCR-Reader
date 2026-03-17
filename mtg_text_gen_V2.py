@@ -67,8 +67,11 @@ def apply_random_size(obj, max_size):
 # ---------------------------
 # Mesh/text conversion & glyph extraction
 # ---------------------------
-def make_text_mesh_copy(text_obj: bpy.types.Object, dbg_col: bpy.types.Collection, base_name: str):
-    # duplicate text object and convert duplicate to mesh, place into dbg_col
+def make_text_mesh_copy(text_obj: bpy.types.Object, base_name: str, debug_mode=True):
+    """
+    Duplicate text object, convert to mesh, unlink from all collections,
+    and optionally link to debug collection.
+    """
     bpy.ops.object.select_all(action='DESELECT')
     text_obj.select_set(True)
     bpy.context.view_layer.objects.active = text_obj
@@ -77,83 +80,57 @@ def make_text_mesh_copy(text_obj: bpy.types.Object, dbg_col: bpy.types.Collectio
     dup_name = f"{text_obj.name}_MESH_{base_name}"
     dup.name = dup_name
 
-    # Convert to mesh
+    # Convert duplicate to mesh
     bpy.ops.object.convert(target='MESH')
     mesh_obj = bpy.context.active_object
     mesh_obj.name = dup_name
-
-    # Ensure it's linked to the debug collection for later easy filtering
-    if dbg_col and mesh_obj.name not in dbg_col.objects:
-        dbg_col.objects.link(mesh_obj)
-
-    return mesh_obj
-
-def make_text_mesh_copy(text_obj: bpy.types.Object, dbg_col: bpy.types.Collection, base_name: str):
-    # duplicate text object and convert duplicate to mesh
-    bpy.ops.object.select_all(action='DESELECT')
-    text_obj.select_set(True)
-    bpy.context.view_layer.objects.active = text_obj
-    bpy.ops.object.duplicate()
-    dup = bpy.context.active_object
-
-    dup_name = f"{text_obj.name}_MESH_{base_name}"
-    dup.name = dup_name
-
-    # Convert to mesh
-    bpy.ops.object.convert(target='MESH')
-    mesh_obj = bpy.context.active_object
-    mesh_obj.name = dup_name
-
-    # Unlink from all other collections to prevent render/selection conflicts
+    """
+    # Unlink from all other collections
     for coll in list(mesh_obj.users_collection):
         coll.objects.unlink(mesh_obj)
-
-    # Link only to debug collection if provided
-    if dbg_col:
-        dbg_col.objects.link(mesh_obj)
-
+    """
     return mesh_obj
 
 
-def extract_glyphs(mesh_obj: bpy.types.Object, dbg_col: bpy.types.Collection, min_verts=3, min_size=1e-4):
+def extract_glyphs(mesh_obj: bpy.types.Object, dbg_col: bpy.types.Collection, debug_mode=True, min_verts=3, min_size=1e-4):
     """
-    - Use mesh_obj (a mesh) -> separate loose parts -> collect new objects created
-    - Returns list of objects representing glyph pieces (world transforms preserved)
+    Separate mesh into loose parts (glyphs), link to debug collection only if debug_mode.
+    Returns the list of glyph objects.
     """
     scene = bpy.context.scene
     existing = set(bpy.data.objects.keys())
 
-    # Ensure the mesh_obj is active and in object mode
     bpy.context.view_layer.objects.active = mesh_obj
     mesh_obj.select_set(True)
     bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='SELECT')  # operate on whole mesh
+    bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.separate(type='LOOSE')
     bpy.ops.object.mode_set(mode='OBJECT')
 
+    # collect new objects
     new_objs = [mesh_obj] + [bpy.data.objects[n] for n in bpy.data.objects.keys() if n not in existing]
-    print("new_objs:     ", new_objs)
     glyphs = []
+
     for o in new_objs:
-        # Only keep mesh objects that are not empty
-        print("Extracted Glyph: ", o, " type: ", o.type)
         if o.type != 'MESH':
             continue
-        # Link to dbg_col
-        if dbg_col and o.name not in dbg_col.objects:
-            dbg_col.objects.link(o)
-        # compute bbox size in world coords
+
         coords = [o.matrix_world @ v.co for v in o.data.vertices] if o.data.vertices else []
         if not coords:
             bpy.data.objects.remove(o, do_unlink=True)
             continue
+
         xs = [c.x for c in coords]; ys = [c.y for c in coords]; zs = [c.z for c in coords]
         bbox_dim = max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs))
-        if len(o.data.vertices) >= min_verts and bbox_dim >= min_size:
-            glyphs.append(o)
-        else:
+        if len(o.data.vertices) < min_verts or bbox_dim < min_size:
             bpy.data.objects.remove(o, do_unlink=True)
-            
+            continue
+
+        # Link to debug collection if debug_mode
+        if debug_mode and dbg_col and o.name not in dbg_col.objects:
+            dbg_col.objects.link(o)
+
+        glyphs.append(o)
 
     return glyphs
 
@@ -434,7 +411,7 @@ class MTG_OT_Render(bpy.types.Operator):
                 scene.collection.children.link(dbg_col)
 
         # Make mesh copy and produce box
-        mesh_copy = make_text_mesh_copy_V2(obj, dbg_col, base)
+        mesh_copy = make_text_mesh_copy(obj, base)
         res_x = int(scene.render.resolution_x * scene.render.resolution_percentage / 100)
         res_y = int(scene.render.resolution_y * scene.render.resolution_percentage / 100)
         glyphs = extract_glyphs(mesh_copy, dbg_col)
